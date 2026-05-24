@@ -1,6 +1,10 @@
-# deepseek-cache-monitor
+<p align="center">
+  <strong>English</strong>
+  &nbsp;·&nbsp;
+  <a href="README_CN.md">简体中文</a>
+</p>
 
-[中文文档](README_CN.md)
+# deepseek-cache-monitor
 
 A local reverse proxy and web dashboard for monitoring DeepSeek API cache hit rates, token usage, and costs when using Claude Code with DeepSeek's Anthropic-compatible endpoint.
 

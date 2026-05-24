@@ -1,6 +1,10 @@
-# deepseek-cache-monitor
+<p align="center">
+  <a href="README.md">English</a>
+  &nbsp;·&nbsp;
+  <strong>简体中文</strong>
+</p>
 
-[English](README.md)
+# deepseek-cache-monitor
 
 DeepSeek API 缓存命中率监控面板。本地反向代理 + Web 仪表盘，实时追踪 Claude Code 使用 DeepSeek 时的缓存命中、Token 消耗和费用。
 
