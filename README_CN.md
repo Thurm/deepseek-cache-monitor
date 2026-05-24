@@ -4,6 +4,12 @@
   <strong>简体中文</strong>
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/node-%3E%3D22-4ec9b0" alt="Node >= 22">
+  <img src="https://img.shields.io/badge/license-MIT-4ec9b0" alt="MIT">
+  <img src="https://img.shields.io/badge/deps-1%20(zero%20frontend)-4ec9b0" alt="1 dependency, zero frontend">
+</p>
+
 # deepseek-cache-monitor
 
 DeepSeek API 缓存命中率监控面板。本地反向代理 + Web 仪表盘，实时追踪 Claude Code 使用 DeepSeek 时的缓存命中、Token 消耗和费用。

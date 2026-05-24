@@ -4,6 +4,12 @@
   <a href="README_CN.md">简体中文</a>
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/node-%3E%3D22-4ec9b0" alt="Node >= 22">
+  <img src="https://img.shields.io/badge/license-MIT-4ec9b0" alt="MIT">
+  <img src="https://img.shields.io/badge/deps-1%20(zero%20frontend)-4ec9b0" alt="1 dependency, zero frontend">
+</p>
+
 # deepseek-cache-monitor
 
 A local reverse proxy and web dashboard for monitoring DeepSeek API cache hit rates, token usage, and costs when using Claude Code with DeepSeek's Anthropic-compatible endpoint.
