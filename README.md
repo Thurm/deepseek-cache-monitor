@@ -5,63 +5,40 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/node-%3E%3D22-4ec9b0" alt="Node >= 22">
-  <img src="https://img.shields.io/badge/license-MIT-4ec9b0" alt="MIT">
-  <img src="https://img.shields.io/badge/deps-1%20(zero%20frontend)-4ec9b0" alt="1 dependency, zero frontend">
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-4ec9b0?style=flat-square&labelColor=161b22" alt="MIT"></a>
+  <a href="#usage"><img src="https://img.shields.io/badge/node-%3E%3D22-4ec9b0?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"></a>
+  <a href="dashboard.html"><img src="https://img.shields.io/badge/frontend-zero%20deps-4ec9b0?style=flat-square&labelColor=161b22" alt="Zero frontend deps"></a>
 </p>
 
-# deepseek-cache-monitor
+<br/>
 
-A local reverse proxy and web dashboard for monitoring DeepSeek API cache hit rates, token usage, and costs when using Claude Code with DeepSeek's Anthropic-compatible endpoint.
+<h3 align="center">Real-time cache hit monitoring for DeepSeek API.</h3>
+<p align="center">A local reverse proxy with a web dashboard — see exactly how much DeepSeek's prefix-cache is saving you, per session.</p>
 
-## Dashboard
+<br/>
 
-Visit `http://localhost:8787`:
+> [!TIP]
+> **The dashboard shows the number that matters: cache hit rate.** DeepSeek charges $0.014/M for cached input vs $0.14/M for fresh input — a 10x difference. This project tells you which side of that equation your sessions land on.
 
-- Stat cards: total requests, cache hit rate, cost savings (USD + CNY)
-- 48-hour cache hit rate trend chart (hourly granularity, hover for details)
-- Token and cost breakdown panels
-- Session-grouped request table with tabs (per-session drill-down)
-- Auto-captured first user message per session (hover to preview)
-- Light / dark theme toggle (follows system preference, persisted)
+> [!NOTE]
+> **Real usage, one week:** 55M input tokens, **99.6% cache hit**, ~$0.96 instead of ~$8.94 without cache. The proxy has been running behind every Claude Code session on this machine — the dashboard shows the receipts.
 
-## Architecture
+<br/>
 
-```
-Claude Code ──→ localhost:8787 (proxy) ──→ api.deepseek.com/anthropic
-                      │
-                      ├── Parse SSE stream → extract cache_read / input / output tokens
-                      ├── Write SQLite (WAL mode)
-                      ├── Record session_id (x-claude-code-session-id header)
-                      └── Capture first user message → session-names.json
+## Install
 
-Dashboard ←── /api/* ←── SQLite (getOverallStats / getHourlySummary / getSessions / getRecentRequests)
+Requires Node ≥ 22 (uses built-in `node:sqlite`). Clone and start:
 
-MCP Server ←── stdio ←── same query functions (ds_cache_overview / ds_cache_recent / ds_cache_daily)
-```
-
-## Files
-
-```
-├── proxy.mjs           # HTTP reverse proxy (port 8787) + API routes + dashboard serving
-├── db.mjs              # SQLite data layer (schema, queries, inserts)
-├── mcp-server.mjs      # MCP stdio server (3 tools)
-├── dashboard.html      # Dashboard frontend (zero-dependency, CSS custom properties theming)
-├── start.sh / restart.sh  # Process management scripts
-├── session-names.json  # Session → first-message mapping (auto-maintained)
-└── logs/               # Daily log files, auto-cleaned after 3 days
+```bash
+git clone https://github.com/Thurm/deepseek-cache-monitor.git
+cd deepseek-cache-monitor
+npm install        # only needs @modelcontextprotocol/sdk for MCP server
+bash restart.sh    # starts proxy on :8787
 ```
 
 ## Usage
 
-### 1. Start the proxy
-
-```bash
-npm run restart
-# or: bash restart.sh
-```
-
-### 2. Configure Claude Code
+### 1. Point Claude Code at the proxy
 
 In `~/.claude/settings.json`:
 
@@ -70,77 +47,97 @@ In `~/.claude/settings.json`:
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:8787",
     "ANTHROPIC_AUTH_TOKEN": "sk-your-deepseek-api-key",
-    "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-pro",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro"
+    "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]"
   }
 }
 ```
 
-### 3. Open the dashboard
+All Claude Code API traffic now flows through the proxy. Requests are forwarded to DeepSeek transparently — the proxy only observes SSE streams to extract cache metrics.
+
+### 2. Open the dashboard
 
 `http://localhost:8787`
 
-### 4. (Optional) MCP integration
+Stat cards show total requests, cache hit rate, and cost savings in USD + CNY. The 48-hour hourly chart lets you hover any data point for exact numbers. The session table groups requests by `x-claude-code-session-id` — click a session tab to drill into individual requests, hover a session row to preview its first user message.
 
-Add to Claude Code MCP config:
+### 3. (Optional) MCP integration
+
+Add to Claude Code's MCP config to query stats without leaving the terminal:
 
 ```json
 {
   "mcpServers": {
-    "ds-cache-monitor": {
+    "deepseek-cache-monitor": {
       "command": "node",
-      "args": ["/path/to/ds-cache-monitor/mcp-server.mjs"]
+      "args": ["/path/to/deepseek-cache-monitor/mcp-server.mjs"]
     }
   }
 }
 ```
 
-Then query directly in Claude Code:
+Then in any Claude Code session:
 
-- `ds_cache_overview` — overall hit rate, token usage, costs
-- `ds_cache_recent` — last N request details
-- `ds_cache_daily` — 30-day daily summary
+| Tool | Returns |
+|------|---------|
+| `ds_cache_overview` | Aggregate hit rate, token counts, USD + CNY costs |
+| `ds_cache_recent` | Last N requests with per-request cache hit/miss |
+| `ds_cache_daily` | 30-day daily breakdown |
 
-## API
+<br/>
+
+## Architecture
+
+```
+Claude Code ──→ localhost:8787 (proxy.mjs) ──→ api.deepseek.com/anthropic
+                      │
+                      ├── Parse SSE stream, extract token usage
+                      ├── Write cache_stats.db (SQLite, WAL mode)
+                      ├── Record session_id from x-claude-code-session-id header
+                      └── Capture first real user message → session-names.json
+
+Dashboard ←── /api/* ←── SQLite queries
+
+MCP Server ←── stdio ←── same query functions
+```
+
+The proxy is a single Node process under 260 lines. It parses DeepSeek's SSE response stream to extract `cache_read_input_tokens`, `input_tokens`, `cache_creation_input_tokens`, and `output_tokens` — the same fields Anthropic's streaming API uses. Each request is logged to SQLite with its session ID, and the dashboard serves a static HTML page that fetches JSON from `/api/*` endpoints.
+
+### What it doesn't do
+
+- No auth, no multi-user. It listens on `localhost:8787` — same machine only.
+- No persistent session storage beyond the SQLite file. Backup `cache_stats.db` if you want to keep history across machines.
+- No request body logging. The proxy sees headers and token counts, not your prompts.
+
+## Dashboard API
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /` | Dashboard HTML |
-| `GET /health` | Health check |
-| `GET /api/overview` | Aggregate stats (requests, hit rate, tokens, cost) |
-| `GET /api/hourly?hours=48` | Hourly breakdown |
-| `GET /api/daily` | Daily breakdown (30 days) |
-| `GET /api/sessions` | Per-session aggregation |
-| `GET /api/session-names` | Session → first message map |
-| `GET /api/recent?limit=30&session=X` | Recent requests (optional session filter) |
+| `GET /health` | Health check — returns `{"status":"ok"}` |
+| `GET /api/overview` | Aggregate: requests, hit rate, tokens, USD + CNY costs |
+| `GET /api/hourly?hours=48` | Hourly breakdown with complete timeline (zero-filled gaps) |
+| `GET /api/daily` | Daily breakdown, last 30 days |
+| `GET /api/sessions` | Per-session aggregation (hit rate, token totals, time range) |
+| `GET /api/session-names` | Session ID → first user message map |
+| `GET /api/recent?limit=30&session=X` | Request-level detail, optional session filter |
 
-All other paths and methods are transparently forwarded to the DeepSeek API.
+All other paths and methods forward transparently to the DeepSeek API.
 
 ## Pricing model
 
-Based on DeepSeek official pricing (per 1M tokens):
+Based on [DeepSeek API pricing](https://platform.deepseek.com/api-docs/pricing) (per 1M tokens):
 
 | | USD | CNY |
 |---|-----|-----|
-| Input (non-cached) | $0.14 | ¥1 |
-| Cache read (hit) | $0.014 | ¥0.1 |
-| Output | $0.28 | ¥2 |
+| Input (cache miss) | $0.14 | ¥1.00 |
+| Cache read (hit) | $0.014 | ¥0.10 |
+| Output | $0.28 | ¥2.00 |
 
-The dashboard displays both USD and CNY. Savings = (cost without cache) − (actual cost).
+The dashboard computes: **savings = (cost without cache) − (actual cost)**. Both currencies are shown side by side.
 
-## Logs
+## Logging
 
-Logs are written to `logs/proxy-YYYY-MM-DD.log`. Files older than 3 days are automatically cleaned at 1:00 AM daily, and on each restart.
-
-## Dependencies
-
-- Node.js ≥ 22 (uses built-in `node:sqlite`)
-- `@modelcontextprotocol/sdk` (MCP server only)
-- Everything else: Node built-ins (`node:http`, `node:fs`, `node:path`, `node:crypto`)
-
-The dashboard has zero external CSS/JS dependencies — pure HTML + inline SVG charts.
+Daily log files at `logs/proxy-YYYY-MM-DD.log`. Cleanup runs at 1:00 AM local time and on each restart — files older than 3 days are deleted automatically.
 
 ## License
 

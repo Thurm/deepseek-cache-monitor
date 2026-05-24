@@ -5,142 +5,139 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/node-%3E%3D22-4ec9b0" alt="Node >= 22">
-  <img src="https://img.shields.io/badge/license-MIT-4ec9b0" alt="MIT">
-  <img src="https://img.shields.io/badge/deps-1%20(zero%20frontend)-4ec9b0" alt="1 dependency, zero frontend">
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-4ec9b0?style=flat-square&labelColor=161b22" alt="MIT"></a>
+  <a href="#usage"><img src="https://img.shields.io/badge/node-%3E%3D22-4ec9b0?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"></a>
+  <a href="dashboard.html"><img src="https://img.shields.io/badge/前端-零依赖-4ec9b0?style=flat-square&labelColor=161b22" alt="零前端依赖"></a>
 </p>
 
-# deepseek-cache-monitor
+<br/>
 
-DeepSeek API 缓存命中率监控面板。本地反向代理 + Web 仪表盘，实时追踪 Claude Code 使用 DeepSeek 时的缓存命中、Token 消耗和费用。
+<h3 align="center">DeepSeek API 缓存命中实时监控</h3>
+<p align="center">本地反向代理 + Web 仪表盘 — 直观看到 DeepSeek 前缀缓存为你节省了多少费用，精确到每个 Session。</p>
 
-## 仪表盘
+<br/>
 
-访问 `http://localhost:8787`：
+> [!TIP]
+> **仪表盘的核心指标：缓存命中率。** DeepSeek 对缓存命中的输入仅收费 ¥0.1/M，而非缓存输入收费 ¥1/M — 相差 10 倍。这个项目告诉你每个 Session 落在等式的哪一边。
 
-- 统计卡片：总请求数、缓存命中率、费用节省（USD / CNY 双币种）
-- 48 小时缓存命中率趋势图（按小时粒度，hover 显示详情）
-- Token 与费用明细面板
-- 按 Session 聚合的请求表格（Tab 切换，支持按会话下钻）
-- 自动捕获每个 Session 的首条用户消息（hover 预览）
-- 亮色 / 暗色主题切换（跟随系统偏好，手动切换记忆）
+> [!NOTE]
+> **实际使用一周数据：** 5500 万输入 Token，**99.6% 缓存命中**，实际花费 ~¥6.86，无缓存费用 ~¥63.83。Proxy 一直运行在本机所有 Claude Code 会话背后，仪表盘记录着每一笔账。
 
-## 架构
+<br/>
 
-```
-Claude Code ──→ localhost:8787 (proxy) ──→ api.deepseek.com/anthropic
-                      │
-                      ├── 解析 SSE 流 → 提取 cache_read / input / output tokens
-                      ├── 写入 SQLite (WAL 模式)
-                      ├── 记录 session_id (x-claude-code-session-id 头)
-                      └── 捕获首条用户消息 → session-names.json
+## 安装
 
-仪表盘 ←── /api/* ←── SQLite (getOverallStats / getHourlySummary / getSessions / getRecentRequests)
+需要 Node ≥ 22（使用内置 `node:sqlite`）：
 
-MCP Server ←── stdio ←── 同上查询函数 (ds_cache_overview / ds_cache_recent / ds_cache_daily)
-```
-
-## 文件结构
-
-```
-├── proxy.mjs           # HTTP 反向代理 (端口 8787) + API 路由 + 仪表盘服务
-├── db.mjs              # SQLite 数据层 (建表 / 查询 / 写入)
-├── mcp-server.mjs      # MCP stdio 服务端 (3 个工具)
-├── dashboard.html      # 仪表盘前端 (零外部依赖，CSS 变量主题)
-├── start.sh / restart.sh  # 进程管理脚本
-├── session-names.json  # Session → 首条消息映射 (自动维护)
-└── logs/               # 按天分日志文件，3 天后自动清理
+```bash
+git clone https://github.com/Thurm/deepseek-cache-monitor.git
+cd deepseek-cache-monitor
+npm install        # 仅 MCP server 需要 @modelcontextprotocol/sdk
+bash restart.sh    # 启动代理，监听 :8787
 ```
 
 ## 使用
 
-### 1. 启动代理
+### 1. 将 Claude Code 指向代理
 
-```bash
-npm run restart
-# 或: bash restart.sh
-```
-
-### 2. 配置 Claude Code
-
-在 `~/.claude/settings.json` 中添加：
+编辑 `~/.claude/settings.json`：
 
 ```json
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:8787",
     "ANTHROPIC_AUTH_TOKEN": "sk-your-deepseek-api-key",
-    "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-pro",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro"
+    "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]"
   }
 }
 ```
 
-### 3. 打开仪表盘
+所有 Claude Code API 流量现在经过代理。请求透明转发到 DeepSeek — 代理仅观察 SSE 流以提取缓存指标。
 
-浏览器访问 `http://localhost:8787`。
+### 2. 打开仪表盘
 
-### 4. （可选）配置 MCP
+`http://localhost:8787`
 
-在 Claude Code 的 MCP 配置中添加：
+统计卡片展示总请求数、缓存命中率和费用节省（USD + CNY）。48 小时按小时趋势图可悬停查看精确数值。Session 表格按 `x-claude-code-session-id` 分组 — 点击 Session Tab 查看单次请求明细，悬停 Session 行预览首条用户消息。
+
+### 3. （可选）MCP 集成
+
+在 Claude Code MCP 配置中添加，无需离开终端即可查询统计数据：
 
 ```json
 {
   "mcpServers": {
-    "ds-cache-monitor": {
+    "deepseek-cache-monitor": {
       "command": "node",
-      "args": ["/path/to/ds-cache-monitor/mcp-server.mjs"]
+      "args": ["/path/to/deepseek-cache-monitor/mcp-server.mjs"]
     }
   }
 }
 ```
 
-之后可在 Claude Code 中直接查询：
+之后在 Claude Code 中直接查询：
 
-- `ds_cache_overview` — 总缓存命中率、Token 用量、费用
-- `ds_cache_recent` — 最近 N 次请求明细
-- `ds_cache_daily` — 近 30 天按日汇总
+| 工具 | 返回 |
+|------|------|
+| `ds_cache_overview` | 总命中率、Token 数量、USD + CNY 费用 |
+| `ds_cache_recent` | 最近 N 次请求明细 |
+| `ds_cache_daily` | 30 天按日汇总 |
 
-## API
+<br/>
+
+## 架构
+
+```
+Claude Code ──→ localhost:8787 (proxy.mjs) ──→ api.deepseek.com/anthropic
+                      │
+                      ├── 解析 SSE 流，提取 Token 用量
+                      ├── 写入 cache_stats.db (SQLite, WAL 模式)
+                      ├── 从 x-claude-code-session-id 头记录 session_id
+                      └── 捕获首条真实用户消息 → session-names.json
+
+仪表盘 ←── /api/* ←── SQLite 查询
+
+MCP Server ←── stdio ←── 相同查询函数
+```
+
+整个代理是单个 Node 进程，不到 260 行。解析 DeepSeek 的 SSE 响应流，提取 `cache_read_input_tokens`、`input_tokens`、`cache_creation_input_tokens` 和 `output_tokens`。每次请求连同 session ID 写入 SQLite，仪表盘提供静态 HTML 页面，从 `/api/*` 端点获取 JSON 数据。
+
+### 不做的事
+
+- 无认证、无多用户。监听 `localhost:8787` — 仅本机访问。
+- SQLite 之外无持久化。如需跨机器保留历史，备份 `cache_stats.db` 即可。
+- 不记录请求体。代理只看到请求头和 Token 计数，不会看到你的提示词。
+
+## 仪表盘 API
 
 | 端点 | 说明 |
 |------|------|
 | `GET /` | 仪表盘 HTML |
-| `GET /health` | 健康检查 |
-| `GET /api/overview` | 总统计 (请求数、命中率、Token、费用) |
-| `GET /api/hourly?hours=48` | 按小时汇总 |
-| `GET /api/daily` | 按日汇总 (30 天) |
-| `GET /api/sessions` | 按 Session 聚合 |
-| `GET /api/session-names` | Session 首条消息映射 |
-| `GET /api/recent?limit=30&session=X` | 最近请求 (可选按 session 过滤) |
+| `GET /health` | 健康检查 — 返回 `{"status":"ok"}` |
+| `GET /api/overview` | 总览：请求数、命中率、Token、USD + CNY 费用 |
+| `GET /api/hourly?hours=48` | 按小时汇总（完整时间线，空时段填零） |
+| `GET /api/daily` | 按日汇总，近 30 天 |
+| `GET /api/sessions` | 按 Session 聚合（命中率、Token 总量、时间范围） |
+| `GET /api/session-names` | Session ID → 首条用户消息映射 |
+| `GET /api/recent?limit=30&session=X` | 请求级详情，可选按 Session 过滤 |
 
-其他路径和方法的请求透明转发至 DeepSeek API。
+其他路径和方法透明转发至 DeepSeek API。
 
 ## 费用模型
 
-基于 DeepSeek 官方定价（每百万 Token）：
+基于 [DeepSeek API 定价](https://platform.deepseek.com/api-docs/pricing)（每百万 Token）：
 
 | | USD | CNY |
 |---|-----|-----|
-| 输入（非缓存） | $0.14 | ¥1 |
-| 缓存命中 | $0.014 | ¥0.1 |
-| 输出 | $0.28 | ¥2 |
+| 输入（缓存未命中） | $0.14 | ¥1.00 |
+| 缓存读取（命中） | $0.014 | ¥0.10 |
+| 输出 | $0.28 | ¥2.00 |
 
-仪表盘同时展示 USD 和 CNY。节省金额 = 无缓存费用 − 实际费用。
+仪表盘计算公式：**节省金额 = 无缓存费用 − 实际费用**。两种货币并排显示。
 
 ## 日志
 
-日志写入 `logs/proxy-YYYY-MM-DD.log`。每天凌晨 1:00 自动清理 3 天前的文件，重启时也会触发清理。
-
-## 依赖
-
-- Node.js ≥ 22（使用内置 `node:sqlite`）
-- `@modelcontextprotocol/sdk`（仅 MCP server 需要）
-- 其余均为 Node 内置模块（`node:http`、`node:fs`、`node:path`、`node:crypto`）
-
-仪表盘无任何外部 CSS/JS 依赖，纯 HTML + 内联 SVG 图表。
+按天写入 `logs/proxy-YYYY-MM-DD.log`。每天凌晨 1:00 和每次重启时自动清理 3 天前的文件。
 
 ## License
 
