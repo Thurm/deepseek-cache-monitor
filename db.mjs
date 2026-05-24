@@ -59,7 +59,7 @@ export function getOverallStats() {
       SUM(cache_write_tokens) as total_write,
       SUM(input_tokens) as total_input,
       SUM(output_tokens) as total_output
-    FROM requests
+    FROM requests WHERE session_id != ''
   `).get();
 
   if (!row || row.total_requests === 0) {
@@ -128,16 +128,38 @@ export function getOverallStats() {
   };
 }
 
-export function getRecentRequests(limit = 20, sessionId = null) {
+export function getRecentRequests(limit = 20, sessionId = null, offset = 0) {
   const d = getDb();
   if (sessionId) {
     return d.prepare(`
-      SELECT * FROM requests WHERE session_id = ? ORDER BY id DESC LIMIT ?
-    `).all(sessionId, limit);
+      SELECT * FROM requests WHERE session_id = ? ORDER BY id DESC LIMIT ? OFFSET ?
+    `).all(sessionId, limit, offset);
   }
   return d.prepare(`
-    SELECT * FROM requests ORDER BY id DESC LIMIT ?
-  `).all(limit);
+    SELECT * FROM requests WHERE session_id != '' ORDER BY id DESC LIMIT ? OFFSET ?
+  `).all(limit, offset);
+}
+
+export function getSessionStats(sessionId) {
+  const d = getDb();
+  const row = d.prepare(`
+    SELECT
+      COUNT(*) as requests,
+      SUM(cache_hit_tokens) as hit,
+      SUM(cache_miss_tokens) as miss,
+      SUM(output_tokens) as output
+    FROM requests WHERE session_id = ?
+  `).get(sessionId);
+  if (!row || row.requests === 0) return null;
+  const total = row.hit + row.miss;
+  const rate = total > 0 ? Math.round(row.hit / total * 1000) / 10 : 0;
+  const inputPriceCNY = 1, cachedPriceCNY = 0.1, outputPriceCNY = 2;
+  const costCNY = ((row.miss * inputPriceCNY) + (row.hit * cachedPriceCNY) + (row.output * outputPriceCNY)) / 1_000_000;
+  return {
+    requests: row.requests,
+    hit_rate: rate,
+    cost_cny_total: '¥' + costCNY.toFixed(4),
+  };
 }
 
 export function getSessions(limit = 20) {

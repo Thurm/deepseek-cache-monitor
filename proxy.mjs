@@ -92,7 +92,9 @@ function handleOverview(res) {
 function handleRecent(res, url) {
   try {
     const sid = url.searchParams.get('session') || null;
-    sendJSON(res, getRecentRequests(parseInt(url.searchParams.get('limit')) || 30, sid));
+    const limit = parseInt(url.searchParams.get('limit')) || 20;
+    const offset = parseInt(url.searchParams.get('offset')) || 0;
+    sendJSON(res, getRecentRequests(limit, sid, offset));
   } catch (e) { sendJSON(res, { error: e.message }, 500); }
 }
 

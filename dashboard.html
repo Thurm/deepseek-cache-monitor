@@ -67,6 +67,12 @@ header .refresh{font-size:.75rem;color:var(--muted)}
 .req-tab.active{background:var(--accent);border-color:var(--accent);color:#fff}
 .summary-row{background:var(--hover-bg);font-weight:600}
 .summary-row td{color:var(--text)!important}
+.pager{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:.78rem;color:var(--muted)}
+.pager .psize{display:flex;gap:4px}
+.pager .psize button,.pager .pnav button{padding:3px 8px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:.75rem}
+.pager .psize button.active,.pager .pnav button:hover{color:var(--text);border-color:var(--accent)}
+.pager .pnav{display:flex;gap:4px;align-items:center}
+.pager .pnav span{color:var(--muted)}
 [data-theme="light"] .req-tab.active{color:#fff}
 [data-theme="light"] .ttip{box-shadow:0 4px 12px rgba(0,0,0,.1)}
 </style>
@@ -80,7 +86,7 @@ header .refresh{font-size:.75rem;color:var(--muted)}
   <div class="panel" id="cost-panel"></div>
 </section>
 <div class="chart-wrap"><h2>Cache Hit Rate (48h)</h2><svg id="chart" viewBox="0 0 900 300"></svg><div class="ttip" id="ttip"></div></div>
-<div class="req-wrap"><h2>Recent Requests</h2><div class="req-tabs" id="req-tabs"></div><div class="sess-desc" id="sess-desc" style="display:none;padding:8px 12px;margin-bottom:8px;background:#1c2129;border-radius:6px;font-size:.82rem;color:#c9d1d9;border-left:3px solid #58a6ff"></div><div class="scroll" style="max-height:400px;overflow-y:auto"><table><thead id="req-head"></thead><tbody id="req-body"></tbody></table></div></div>
+<div class="req-wrap"><h2>Recent Requests</h2><div class="req-tabs" id="req-tabs"></div><div class="sess-desc" id="sess-desc" style="display:none;padding:8px 12px;margin-bottom:8px;background:#1c2129;border-radius:6px;font-size:.82rem;color:#c9d1d9;border-left:3px solid #58a6ff"></div><div class="scroll" style="max-height:400px;overflow-y:auto"><table><thead id="req-head"></thead><tbody id="req-body"></tbody></table></div><div class="pager" id="pager" style="display:none"></div></div>
 </div>
 <script>
 const $$ = (s) => document.querySelector(s);
@@ -221,6 +227,7 @@ function renderChart(d) {
 }
 
 let curTab = 'all', curReqs = [], curSessions = [], curSessCache = {}, sessNames = {};
+let pageSize = 20, curPage = 1, totalReqs = 0;
 
 function row(r, cls) {
   const clr = cls === 'summary' ? ' class="summary-row"' : (cls || '');
@@ -250,14 +257,21 @@ function buildTabs() {
   curSessions.forEach(s => {
     h += '<button class="req-tab' + (curTab === s.session_id ? ' active' : '') + '" onclick="switchTab(\'' + s.session_id + '\')">' + s.session_id.slice(0,8) + ' (' + s.requests + ')</button>';
   });
-  h += '<button class="req-tab' + (curTab === 'detail' ? ' active' : '') + '" onclick="switchTab(\'detail\')">All Details (' + curReqs.length + ')</button>';
+  h += '<button class="req-tab' + (curTab === 'detail' ? ' active' : '') + '" onclick="switchTab(\'detail\')">All Details (' + totalReqs + ')</button>';
   tabs.innerHTML = h;
 }
 
 function renderSessions() {
   if (!curSessions.length) { renderTable(rowHead(), '<tr><td colspan="9" class="empty">No sessions yet</td></tr>'); return; }
   const head = '<tr><th>Session</th><th>First Seen</th><th>Last Seen</th><th>Hit Rate</th><th>Req</th><th>Cache Hit</th><th>Cache Miss</th><th>Output</th></tr>';
-  const body = curSessions.map(s => {
+  // Total row
+  const tot = curSessions.reduce((a,s) => { a.hit+=s.hit; a.miss+=s.miss; a.out+=s.output; a.req+=s.requests; return a; }, {hit:0,miss:0,out:0,req:0});
+  const total = tot.hit + tot.miss;
+  const totRate = total > 0 ? (tot.hit / total * 100).toFixed(1) + '%' : '-';
+  const trc = parseFloat(totRate) >= 90 ? 'color:#3fb950' : parseFloat(totRate) >= 50 ? 'color:#d29922' : 'color:#f85149';
+  const totalRow = '<tr class="summary-row"><td><strong>' + curSessions.length + ' sessions</strong></td><td>-</td><td>-</td><td style="' + trc + '">' + totRate + '</td><td>' + tot.req + '</td><td>' + fmt(tot.hit) + '</td><td>' + fmt(tot.miss) + '</td><td>' + fmt(tot.out) + '</td></tr>';
+
+  const body = totalRow + curSessions.map(s => {
     const total = s.hit + s.miss;
     const rate = total > 0 ? (s.hit / total * 100).toFixed(1) + '%' : '-';
     const rc = parseFloat(rate) >= 90 ? 'color:#3fb950' : parseFloat(rate) >= 50 ? 'color:#d29922' : 'color:#f85149';
@@ -283,26 +297,61 @@ function showSessDesc(sid) {
   else { desc.style.display = 'none'; }
 }
 
-function renderAllDetails() {
-  if (!curReqs.length) { renderTable(rowHead(), '<tr><td colspan="9" class="empty">No requests</td></tr>'); return; }
-  renderTable(rowHead(), curReqs.map(r => row(r)).join(''));
+function renderPager(total, fetchFn) {
+  const el = $$('#pager');
+  if (total <= pageSize) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  const pages = Math.ceil(total / pageSize);
+  el.innerHTML =
+    '<div class="psize">' +
+    [20,50,100].map(n => '<button class="' + (pageSize === n ? 'active' : '') + '" onclick="setPageSize(' + n + ',' + total + ')">' + n + '</button>').join('') +
+    '</div>' +
+    '<div class="pnav">' +
+    '<button onclick="goPage(' + (curPage-1) + ')" ' + (curPage <= 1 ? 'disabled' : '') + '>Prev</button>' +
+    '<span>Page ' + curPage + ' / ' + pages + '</span>' +
+    '<button onclick="goPage(' + (curPage+1) + ')" ' + (curPage >= pages ? 'disabled' : '') + '>Next</button>' +
+    '</div>';
+}
+
+function goPage(n) { curPage = n; fetchCurrentTab(); }
+function setPageSize(n, total) { pageSize = n; curPage = 1; fetchCurrentTab(); }
+
+function fetchCurrentTab() {
+  if (curTab === 'detail') {
+    const off = (curPage - 1) * pageSize;
+    fetch('/api/recent?limit=' + pageSize + '&offset=' + off).then(r => r.json()).then(rows => {
+      $$('#sess-desc').style.display = 'none';
+      renderTable(rowHead(), (rows||[]).map(r => row(r)).join(''));
+      renderPager(totalReqs, fetchCurrentTab);
+    });
+  } else if (curTab !== 'all') {
+    const sid = curTab;
+    const off = (curPage - 1) * pageSize;
+    const sess = curSessions.find(s => s.session_id === sid);
+    const total = sess ? sess.requests : 0;
+    fetch('/api/recent?session=' + sid + '&limit=' + pageSize + '&offset=' + off).then(r => r.json()).then(rows => {
+      rows = rows || [];
+      const desc = $$('#sess-desc');
+      const name = sessNames[sid];
+      if (name) { desc.textContent = name; desc.style.display = 'block'; }
+      else { desc.style.display = 'none'; }
+      renderTable(rowHead(), summaryRow(rows) + rows.map(r => row(r)).join(''));
+      renderPager(total, fetchCurrentTab);
+    });
+  }
 }
 
 function switchTab(id) {
-  curTab = id;
+  curTab = id; curPage = 1;
   buildTabs();
-  $$('#sess-desc').style.display = 'none';
+  $$('#pager').style.display = 'none';
   if (id === 'all') {
     renderSessions();
   } else if (id === 'detail') {
-    renderAllDetails();
+    totalReqs = curReqs.length; // full count from overview
+    fetchCurrentTab();
   } else {
-    if (curSessCache[id]) { renderSessionDetail(id, curSessCache[id]); return; }
-    fetch('/api/recent?session=' + id + '&limit=50').then(r => r.json()).then(rows => {
-      rows = rows || [];
-      curSessCache[id] = rows;
-      renderSessionDetail(id, rows);
-    });
+    fetchCurrentTab();
   }
 }
 
@@ -314,6 +363,7 @@ async function loadAll() {
   const [ov, hourly, recent] = await Promise.all([load('overview'), load('hourly'), load('recent')]);
   renderOverview(ov);
   renderChart(hourly);
+  totalReqs = (ov && ov.totalRequests) || 0;
   curReqs = recent || [];
   const sess = await fetch('/api/sessions').then(r => r.json()).catch(() => []);
   curSessions = sess || [];
