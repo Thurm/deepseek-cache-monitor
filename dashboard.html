@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DeepSeek Cache Monitor</title>
+<style>
+:root{
+  --bg:#0d1118;--surface:#151b24;--border:#222830;--text:#c4ccd6;--muted:#6b7280;
+  --accent:#4ec9b0;--green:#4ec9b0;--yellow:#dcdcaa;--red:#f14c4c;
+  --card-bg:var(--surface);--hover-bg:#1a2130;--data-font:'SF Mono',Menlo,Consolas,monospace;
+}
+[data-theme="light"]{
+  --bg:#f3f4f6;--surface:#fff;--border:#e1e4e8;--text:#24292f;--muted:#656d76;
+  --accent:#1a7f7f;--green:#1a7f7f;--yellow:#9a6700;--red:#cf222e;
+  --card-bg:var(--surface);--hover-bg:#f3f4f6;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);padding:24px 16px}
+.wrap{max-width:1100px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px;flex-wrap:wrap;gap:8px}
+header h1{font-size:1.4rem;color:var(--accent)}
+header .refresh{font-size:.75rem;color:var(--muted)}
+.theme-btn{cursor:pointer;background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:4px;font-size:.75rem;margin-left:8px}
+.theme-btn:hover{color:var(--text);border-color:var(--accent)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.card .label{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.card .value{font-size:1.6rem;font-weight:600;color:var(--text);font-family:var(--data-font)}
+.card .value.hit{color:var(--green)}
+.card .value.save{color:var(--yellow)}
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
+@media(max-width:700px){.panels{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.panel h2{font-size:.85rem;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
+.panel table{width:100%}
+.panel td{padding:4px 0;font-size:.85rem}
+.panel td:last-child{text-align:right;font-family:var(--data-font);color:var(--text)}
+.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px}
+.chart-wrap h2{font-size:.85rem;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
+.chart-wrap svg{width:100%;height:auto}
+.req-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.req-wrap h2{font-size:.85rem;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
+.req-wrap table{width:100%;font-size:.78rem;border-collapse:collapse}
+.req-wrap th,.req-wrap td{padding:6px 8px;text-align:right;white-space:nowrap}
+.req-wrap th{color:var(--muted);font-weight:500;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface)}
+.req-wrap td:first-child,.req-wrap th:first-child{text-align:left}
+.req-wrap td:nth-child(2),.req-wrap th:nth-child(2){text-align:left}
+.req-wrap td:nth-child(4){font-family:var(--data-font)}
+.req-wrap tbody tr:hover{background:var(--hover-bg)}
+.req-wrap .scroll{max-height:500px;overflow-y:auto}
+.req-wrap td[style]{font-family:var(--data-font)}
+.sess-desc{background:var(--surface);border-left:3px solid var(--accent)}
+.empty{text-align:center;color:var(--muted);padding:40px 0;font-size:.9rem}
+.axis-label{font-size:11px;fill:var(--muted)}
+.axis-line{stroke:var(--border);stroke-width:1}
+.trend-line{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.ref-line{stroke:var(--green);stroke-width:1;stroke-dasharray:6 3}
+.dot{fill:var(--accent)}
+.ttip{position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.78rem;color:var(--text);pointer-events:none;white-space:nowrap;z-index:10;display:none}
+.ttip .tt-date{color:var(--muted);margin-bottom:2px}
+.ttip .tt-val{font-weight:600}
+.chart-wrap{position:relative}
+.req-tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.req-tab{padding:4px 12px;border-radius:4px;font-size:.78rem;cursor:pointer;border:1px solid var(--border);color:var(--muted);background:transparent;white-space:nowrap}
+.req-tab:hover{color:var(--text);border-color:var(--accent)}
+.req-tab.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.summary-row{background:var(--hover-bg);font-weight:600}
+.summary-row td{color:var(--text)!important}
+[data-theme="light"] .req-tab.active{color:#fff}
+[data-theme="light"] .ttip{box-shadow:0 4px 12px rgba(0,0,0,.1)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><h1>DeepSeek Cache Monitor</h1><div><span class="refresh" id="refresh"></span><button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark theme">☀</button></div></header>
+<section class="stats" id="stats"></section>
+<section class="panels">
+  <div class="panel" id="token-panel"></div>
+  <div class="panel" id="cost-panel"></div>
+</section>
+<div class="chart-wrap"><h2>Cache Hit Rate (48h)</h2><svg id="chart" viewBox="0 0 900 300"></svg><div class="ttip" id="ttip"></div></div>
+<div class="req-wrap"><h2>Recent Requests</h2><div class="req-tabs" id="req-tabs"></div><div class="sess-desc" id="sess-desc" style="display:none;padding:8px 12px;margin-bottom:8px;background:#1c2129;border-radius:6px;font-size:.82rem;color:#c9d1d9;border-left:3px solid #58a6ff"></div><div class="scroll" style="max-height:400px;overflow-y:auto"><table><thead id="req-head"></thead><tbody id="req-body"></tbody></table></div></div>
+</div>
+<script>
+const $$ = (s) => document.querySelector(s);
+const fmt = (n) => typeof n === 'number' ? n.toLocaleString() : n;
+const pct = (v) => typeof v === 'number' ? v.toFixed(1) + '%' : v;
+
+(function(){
+  const saved = localStorage.getItem('theme');
+  const prefers = window.matchMedia('(prefers-color-scheme: light)').matches;
+  const theme = saved || (prefers ? 'light' : 'dark');
+  document.documentElement.setAttribute('data-theme', theme);
+  $$('#theme-btn').textContent = theme === 'light' ? '☾' : '☀';
+})();
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  $$('#theme-btn').textContent = next === 'light' ? '☾' : '☀';
+}
+
+async function load(sec) {
+  const el = $$('#' + sec);
+  try {
+    const r = await fetch('/api/' + (sec === 'recent' ? 'recent?limit=30' : sec === 'hourly' ? 'hourly' : sec === 'daily' ? 'daily' : 'overview'));
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch(e) { el.innerHTML = '<div class="panel"><div class="empty">Load failed: ' + e.message + '</div></div>'; return null; }
+}
+
+function renderOverview(d) {
+  if (!d || d.totalRequests === 0) {
+    $$('#stats').innerHTML = '<div class="empty" style="grid-column:1/-1">No data yet. Make some API calls first.</div>';
+    $$('#token-panel').innerHTML = '<h2>Token Breakdown</h2><div class="empty">No data</div>';
+    $$('#cost-panel').innerHTML = '<h2>Cost Breakdown</h2><div class="empty">No data</div>';
+    return;
+  }
+  $$('#stats').innerHTML =
+    '<div class="card"><div class="label">Total Requests</div><div class="value">' + fmt(d.totalRequests) + '</div></div>' +
+    '<div class="card"><div class="label">Cache Hit Rate</div><div class="value hit">' + d.cacheHitRate + '</div></div>' +
+    '<div class="card"><div class="label">Cost Savings vs No-Cache</div><div class="value save">' + d.cost.savings + '</div><div style="font-size:.8rem;color:#d29922">' + d.cost_cny.savings + '</div></div>' +
+    '<div class="card"><div class="label">Output Tokens</div><div class="value">' + fmt(d.tokens.output) + '</div></div>';
+  $$('#token-panel').innerHTML = '<h2>Token Breakdown</h2><table>' +
+    '<tr><td>Cache Hit</td><td>' + fmt(d.tokens.hit) + '</td></tr>' +
+    '<tr><td>Cache Miss</td><td>' + fmt(d.tokens.miss) + '</td></tr>' +
+    '<tr><td>Cache Write</td><td>' + fmt(d.tokens.write) + '</td></tr>' +
+    '<tr><td>Total Input</td><td>' + fmt(d.tokens.input) + '</td></tr>' +
+    '<tr><td>Total Output</td><td>' + fmt(d.tokens.output) + '</td></tr>' +
+    '</table>';
+  $$('#cost-panel').innerHTML = '<h2>Cost Breakdown</h2><table>' +
+    '<tr><td>Miss Cost</td><td>' + d.cost.miss + ' / ' + d.cost_cny.miss + '</td></tr>' +
+    '<tr><td>Hit Cost</td><td>' + d.cost.hit + ' / ' + d.cost_cny.hit + '</td></tr>' +
+    '<tr><td>Output Cost</td><td>' + d.cost.output + ' / ' + d.cost_cny.output + '</td></tr>' +
+    '<tr style="font-weight:600"><td style="color:#f85149">Total Cost</td><td style="color:#f85149">' + d.cost.total + ' / ' + d.cost_cny.total + '</td></tr>' +
+    '<tr style="font-weight:600"><td style="color:#3fb950">Savings <span style="color:#8b949e;font-weight:400;font-size:.8rem">(no-cache)</span></td><td style="color:#3fb950">' + d.cost.savings + ' / ' + d.cost_cny.savings + ' <span style="color:#8b949e;font-weight:400;font-size:.8rem">(' + d.cost.withoutCache + ' / ' + d.cost_cny.withoutCache + ')</span></td></tr>' +
+    '</table>';
+}
+
+function renderChart(d) {
+  const svg = $$('#chart');
+  const tip = $$('#ttip');
+  svg.innerHTML = '';
+  if (!d || d.length < 2) {
+    svg.insertAdjacentHTML('afterend', '<div class="empty">Not enough data for chart</div>');
+    return;
+  }
+  const data = d; // already ASC from API
+  const W = 900, H = 300, L = 54, R = 20, T = 16, B = 36;
+  const pw = W - L - R, ph = H - T - B;
+  const xs = (i) => L + (i / Math.max(data.length - 1, 1)) * pw;
+  const ys = (v) => T + ph - (Math.min(parseFloat(v), 100) / 100) * ph;
+  const mk = (tag, attrs) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k,v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+
+  // Axes
+  svg.appendChild(mk('line', {x1:L,y1:T,x2:L,y2:T+ph,'class':'axis-line'}));
+  svg.appendChild(mk('line', {x1:L,y1:T+ph,x2:W-R,y2:T+ph,'class':'axis-line'}));
+  [0,25,50,75,100].forEach(v => {
+    const y = ys(v);
+    svg.appendChild(mk('line', {x1:L-4,y1:y,x2:L,y2:y,'class':'axis-line'}));
+    svg.appendChild(mk('text', {x:L-6,y:y+4,'text-anchor':'end','class':'axis-label'})).textContent = v + '%';
+  });
+
+  // X-axis labels: show one per 6 hours
+  const step = Math.max(1, Math.floor(data.length / 8));
+  for (let i = 0; i < data.length; i += step) {
+    const t = mk('text', {x:xs(i),y:T+ph+16,'text-anchor':'middle','class':'axis-label'});
+    t.textContent = data[i].hour.slice(5); // MM-DDTHH
+    svg.appendChild(t);
+  }
+
+// Trend line: split into segments at empty slots (no connecting line across gaps)
+  const active = data.map(p => p.requests > 0);
+  let seg = [];
+  for (let i = 0; i <= data.length; i++) {
+    if (i < data.length && active[i]) {
+      seg.push(xs(i) + ',' + ys(data[i].rate));
+    } else if (seg.length > 0) {
+      svg.appendChild(mk('polyline', {points:seg.join(' '),'class':'trend-line'}));
+      seg = [];
+    }
+  }
+
+  // Average: only count hours with actual data
+  const activeData = data.filter(p => p.requests > 0);
+  const avg = activeData.length > 0 ? activeData.reduce((s,p) => s + parseFloat(p.rate), 0) / activeData.length : 0;
+  if (activeData.length > 0) {
+    svg.appendChild(mk('line', {x1:L,y1:ys(avg),x2:W-R,y2:ys(avg),'class':'ref-line'}));
+    const tAvg = mk('text', {x:L+4,y:ys(avg)-3,'class':'axis-label'});
+    tAvg.textContent = 'avg ' + pct(avg) + ' (' + activeData.length + 'h)'; svg.appendChild(tAvg);
+  }
+
+  // Data dots: only for hours with requests, empty slots get no dot
+  const wrap = svg.closest('.chart-wrap');
+  data.forEach((p, i) => {
+    if (p.requests === 0) return; // skip empty slots entirely
+    const g = mk('g', {style:'cursor:pointer'});
+    const c = mk('circle', {cx:xs(i),cy:ys(p.rate),r:4.5,'class':'dot',opacity:'0.7',fill:'#58a6ff'});
+    g.appendChild(c);
+    g.addEventListener('mouseenter', (ev) => {
+      c.setAttribute('opacity', '1'); c.setAttribute('r', '6');
+      tip.innerHTML = '<div class="tt-date">' + p.hour + '</div><div class="tt-val">' + pct(p.rate) + '</div><div>' + fmt(p.requests) + ' requests</div>';
+      tip.style.display = 'block';
+      const rect = wrap.getBoundingClientRect();
+      tip.style.left = (ev.clientX - rect.left + 12) + 'px';
+      tip.style.top = (ev.clientY - rect.top - 40) + 'px';
+    });
+    g.addEventListener('mousemove', (ev) => {
+      const rect = wrap.getBoundingClientRect();
+      tip.style.left = (ev.clientX - rect.left + 12) + 'px';
+      tip.style.top = (ev.clientY - rect.top - 40) + 'px';
+    });
+    g.addEventListener('mouseleave', () => {
+      c.setAttribute('opacity', '0.7'); c.setAttribute('r', '4.5');
+      tip.style.display = 'none';
+    });
+    svg.appendChild(g);
+  });
+}
+
+let curTab = 'all', curReqs = [], curSessions = [], curSessCache = {}, sessNames = {};
+
+function row(r, cls) {
+  const clr = cls === 'summary' ? ' class="summary-row"' : (cls || '');
+  const total = r.cache_hit_tokens + r.cache_miss_tokens;
+  const rate = total > 0 ? (r.cache_hit_tokens / total * 100).toFixed(1) + '%' : '-';
+  const rc = parseFloat(rate) >= 90 ? 'color:#3fb950' : parseFloat(rate) >= 50 ? 'color:#d29922' : 'color:#f85149';
+  return '<tr' + clr + '><td>' + (r.id||'') + '</td><td>' + (r.timestamp||'') + '</td><td>' + (r.model||'') + '</td><td style="' + rc + '">' + rate + '</td><td>' + fmt(r.cache_hit_tokens) + '</td><td>' + fmt(r.cache_miss_tokens) + '</td><td>' + fmt(r.cache_write_tokens) + '</td><td>' + fmt(r.input_tokens) + '</td><td>' + fmt(r.output_tokens) + '</td></tr>';
+}
+
+function rowHead() {
+  return '<tr><th>ID</th><th>Time</th><th>Model</th><th>Hit Rate</th><th>Cache Hit</th><th>Cache Miss</th><th>Cache Write</th><th>Input</th><th>Output</th></tr>';
+}
+
+function summaryRow(rows) {
+  const s = rows.reduce((a,r) => { a.hit+=r.cache_hit_tokens; a.miss+=r.cache_miss_tokens; a.write+=r.cache_write_tokens; a.out+=r.output_tokens; return a; }, {hit:0,miss:0,write:0,out:0});
+  return row({id:'',timestamp:'',model:rows.length+' reqs',cache_hit_tokens:s.hit,cache_miss_tokens:s.miss,cache_write_tokens:s.write,input_tokens:s.hit+s.miss,output_tokens:s.out}, 'summary');
+}
+
+function renderTable(head, body) {
+  $$('#req-head').innerHTML = head;
+  $$('#req-body').innerHTML = body;
+}
+
+function buildTabs() {
+  const tabs = $$('#req-tabs');
+  let h = '<button class="req-tab' + (curTab === 'all' ? ' active' : '') + '" onclick="switchTab(\'all\')">Sessions (' + curSessions.length + ')</button>';
+  curSessions.forEach(s => {
+    h += '<button class="req-tab' + (curTab === s.session_id ? ' active' : '') + '" onclick="switchTab(\'' + s.session_id + '\')">' + s.session_id.slice(0,8) + ' (' + s.requests + ')</button>';
+  });
+  h += '<button class="req-tab' + (curTab === 'detail' ? ' active' : '') + '" onclick="switchTab(\'detail\')">All Details (' + curReqs.length + ')</button>';
+  tabs.innerHTML = h;
+}
+
+function renderSessions() {
+  if (!curSessions.length) { renderTable(rowHead(), '<tr><td colspan="9" class="empty">No sessions yet</td></tr>'); return; }
+  const head = '<tr><th>Session</th><th>First Seen</th><th>Last Seen</th><th>Hit Rate</th><th>Req</th><th>Cache Hit</th><th>Cache Miss</th><th>Output</th></tr>';
+  const body = curSessions.map(s => {
+    const total = s.hit + s.miss;
+    const rate = total > 0 ? (s.hit / total * 100).toFixed(1) + '%' : '-';
+    const rc = parseFloat(rate) >= 90 ? 'color:#3fb950' : parseFloat(rate) >= 50 ? 'color:#d29922' : 'color:#f85149';
+    const name = sessNames[s.session_id] || '';
+    const title = name ? ' title="' + name.replace(/"/g,'&quot;') + '"' : '';
+    return '<tr' + title + '><td>' + s.session_id.slice(0,12) + '</td><td>' + s.first_seen + '</td><td>' + s.last_seen + '</td><td style="' + rc + '">' + rate + '</td><td>' + s.requests + '</td><td>' + fmt(s.hit) + '</td><td>' + fmt(s.miss) + '</td><td>' + fmt(s.output) + '</td></tr>';
+  }).join('');
+  renderTable(head, body);
+}
+
+function renderSessionDetail(sid, rows) {
+  const desc = $$('#sess-desc');
+  const name = sessNames[sid];
+  if (name) { desc.textContent = name; desc.style.display = 'block'; }
+  else { desc.style.display = 'none'; }
+  renderTable(rowHead(), summaryRow(rows) + rows.map(r => row(r)).join(''));
+}
+
+function showSessDesc(sid) {
+  const desc = $$('#sess-desc');
+  const name = sessNames[sid];
+  if (name) { desc.textContent = name; desc.style.display = 'block'; }
+  else { desc.style.display = 'none'; }
+}
+
+function renderAllDetails() {
+  if (!curReqs.length) { renderTable(rowHead(), '<tr><td colspan="9" class="empty">No requests</td></tr>'); return; }
+  renderTable(rowHead(), curReqs.map(r => row(r)).join(''));
+}
+
+function switchTab(id) {
+  curTab = id;
+  buildTabs();
+  $$('#sess-desc').style.display = 'none';
+  if (id === 'all') {
+    renderSessions();
+  } else if (id === 'detail') {
+    renderAllDetails();
+  } else {
+    if (curSessCache[id]) { renderSessionDetail(id, curSessCache[id]); return; }
+    fetch('/api/recent?session=' + id + '&limit=50').then(r => r.json()).then(rows => {
+      rows = rows || [];
+      curSessCache[id] = rows;
+      renderSessionDetail(id, rows);
+    });
+  }
+}
+
+function updateRefresh() {
+  $$('#refresh').textContent = 'Last: ' + new Date().toLocaleTimeString() + ' (auto 30s)';
+}
+
+async function loadAll() {
+  const [ov, hourly, recent] = await Promise.all([load('overview'), load('hourly'), load('recent')]);
+  renderOverview(ov);
+  renderChart(hourly);
+  curReqs = recent || [];
+  const sess = await fetch('/api/sessions').then(r => r.json()).catch(() => []);
+  curSessions = sess || [];
+  sessNames = await fetch('/api/session-names').then(r => r.json()).catch(() => ({}));
+  curTab = 'all'; curSessCache = {};
+  buildTabs();
+  renderSessions();
+  updateRefresh();
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

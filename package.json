@@ -1,0 +1,14 @@
+{
+  "name": "deepseek-cache-monitor",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "proxy": "node proxy.mjs",
+    "restart": "bash restart.sh",
+    "mcp": "node mcp-server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+cache_stats.db
+cache_stats.db-*
+proxy.pid
+logs/
+session-names.json
+.claude/
