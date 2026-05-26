@@ -258,7 +258,14 @@ function buildTabs() {
     h += '<button class="req-tab' + (curTab === s.session_id ? ' active' : '') + '" onclick="switchTab(\'' + s.session_id + '\')">' + s.session_id.slice(0,8) + ' (' + s.requests + ')</button>';
   });
   h += '<button class="req-tab' + (curTab === 'detail' ? ' active' : '') + '" onclick="switchTab(\'detail\')">All Details (' + totalReqs + ')</button>';
+  h += ' <button class="theme-btn" onclick="resetCost(\'_all\')" title="Reset ALL cost tracking">↺ all</button>';
   tabs.innerHTML = h;
+}
+
+async function resetCost(sid) {
+  if (!confirm(sid === '_all' ? 'Reset cost for ALL sessions?' : 'Reset cost for this session?')) return;
+  await fetch('/api/reset-cost?session=' + sid);
+  location.reload();
 }
 
 function renderSessions() {
@@ -277,7 +284,7 @@ function renderSessions() {
     const rc = parseFloat(rate) >= 90 ? 'color:#3fb950' : parseFloat(rate) >= 50 ? 'color:#d29922' : 'color:#f85149';
     const name = sessNames[s.session_id] || '';
     const title = name ? ' title="' + name.replace(/"/g,'&quot;') + '"' : '';
-    return '<tr' + title + '><td>' + s.session_id.slice(0,12) + '</td><td>' + s.first_seen + '</td><td>' + s.last_seen + '</td><td style="' + rc + '">' + rate + '</td><td>' + s.requests + '</td><td>' + fmt(s.hit) + '</td><td>' + fmt(s.miss) + '</td><td>' + fmt(s.output) + '</td></tr>';
+    return '<tr' + title + '><td>' + s.session_id.slice(0,12) + ' <a href="javascript:resetCost(\'' + s.session_id + '\')" style="color:var(--muted);font-size:.7rem;text-decoration:none" title="Reset cost for this session">↺</a></td><td>' + s.first_seen + '</td><td>' + s.last_seen + '</td><td style="' + rc + '">' + rate + '</td><td>' + s.requests + '</td><td>' + fmt(s.hit) + '</td><td>' + fmt(s.miss) + '</td><td>' + fmt(s.output) + '</td></tr>';
   }).join('');
   renderTable(head, body);
 }

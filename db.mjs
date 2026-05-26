@@ -2,8 +2,24 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import fs from 'node:fs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dirname, 'cache_stats.db');
+const RESETS_PATH = join(__dirname, 'cost-resets.json');
+
+export function loadResets() {
+  try { return JSON.parse(fs.readFileSync(RESETS_PATH, 'utf-8')); }
+  catch { return {}; }
+}
+
+export function saveReset(sessionId) {
+  const r = loadResets();
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  r[sessionId || '_all'] = now;
+  fs.writeFileSync(RESETS_PATH, JSON.stringify(r));
+  return r;
+}
 
 let db;
 
@@ -49,18 +65,14 @@ export function insertRequest(usage, model, sessionId) {
   `).run(sessionId ?? '', model ?? '', hit, miss, write, hit + miss, output);
 }
 
-export function getOverallStats() {
+export function getOverallStats(since = null) {
   const d = getDb();
-  const row = d.prepare(`
-    SELECT
-      COUNT(*) as total_requests,
-      SUM(cache_hit_tokens) as total_hit,
-      SUM(cache_miss_tokens) as total_miss,
-      SUM(cache_write_tokens) as total_write,
-      SUM(input_tokens) as total_input,
-      SUM(output_tokens) as total_output
-    FROM requests WHERE session_id != ''
-  `).get();
+  const where = since
+    ? "WHERE session_id != '' AND timestamp >= ?"
+    : "WHERE session_id != ''";
+  const row = since
+    ? d.prepare(`SELECT COUNT(*) as total_requests, SUM(cache_hit_tokens) as total_hit, SUM(cache_miss_tokens) as total_miss, SUM(cache_write_tokens) as total_write, SUM(input_tokens) as total_input, SUM(output_tokens) as total_output FROM requests ${where}`).get(since)
+    : d.prepare(`SELECT COUNT(*) as total_requests, SUM(cache_hit_tokens) as total_hit, SUM(cache_miss_tokens) as total_miss, SUM(cache_write_tokens) as total_write, SUM(input_tokens) as total_input, SUM(output_tokens) as total_output FROM requests ${where}`).get();
 
   if (!row || row.total_requests === 0) {
     return { totalRequests: 0, message: 'No data yet. Make some API calls first.' };
@@ -140,16 +152,14 @@ export function getRecentRequests(limit = 20, sessionId = null, offset = 0) {
   `).all(limit, offset);
 }
 
-export function getSessionStats(sessionId) {
+export function getSessionStats(sessionId, since = null) {
   const d = getDb();
-  const row = d.prepare(`
-    SELECT
-      COUNT(*) as requests,
-      SUM(cache_hit_tokens) as hit,
-      SUM(cache_miss_tokens) as miss,
-      SUM(output_tokens) as output
-    FROM requests WHERE session_id = ?
-  `).get(sessionId);
+  const where = since
+    ? 'WHERE session_id = ? AND timestamp >= ?'
+    : 'WHERE session_id = ?';
+  const row = since
+    ? d.prepare(`SELECT COUNT(*) as requests, SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests ${where}`).get(sessionId, since)
+    : d.prepare(`SELECT COUNT(*) as requests, SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests ${where}`).get(sessionId);
   if (!row || row.requests === 0) return null;
   const total = row.hit + row.miss;
   const rate = total > 0 ? Math.round(row.hit / total * 1000) / 10 : 0;

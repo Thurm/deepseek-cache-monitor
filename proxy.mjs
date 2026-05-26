@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { insertRequest, getOverallStats, getRecentRequests, getDailySummary, getHourlySummary, getSessions } from './db.mjs';
+import { insertRequest, getOverallStats, getRecentRequests, getDailySummary, getHourlySummary, getSessions, loadResets, saveReset } from './db.mjs';
 
 const DASHBOARD_PATH = path.join(import.meta.dirname, 'dashboard.html');
 const SESSION_NAMES_PATH = path.join(import.meta.dirname, 'session-names.json');
@@ -84,9 +84,20 @@ function sendJSON(res, data, status = 200) {
   res.end(JSON.stringify(data));
 }
 
-function handleOverview(res) {
-  try { sendJSON(res, getOverallStats()); }
-  catch (e) { sendJSON(res, { error: e.message }, 500); }
+function handleOverview(res, url) {
+  try {
+    const resets = loadResets();
+    const since = resets._all || null;
+    sendJSON(res, getOverallStats(since));
+  } catch (e) { sendJSON(res, { error: e.message }, 500); }
+}
+
+function handleResetCost(res, url) {
+  try {
+    const sid = url.searchParams.get('session') || '_all';
+    const r = saveReset(sid);
+    sendJSON(res, { ok: true, reset: r });
+  } catch (e) { sendJSON(res, { error: e.message }, 500); }
 }
 
 function handleRecent(res, url) {
@@ -131,7 +142,8 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
-    if (path === '/api/overview') { handleOverview(res); return; }
+    if (path === '/api/overview') { handleOverview(res, u); return; }
+    if (path === '/api/reset-cost') { handleResetCost(res, u); return; }
     if (path === '/api/recent')   { handleRecent(res, u); return; }
     if (path === '/api/daily')    { handleDaily(res); return; }
     if (path === '/api/hourly')   { handleHourly(res, u); return; }

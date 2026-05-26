@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { getOverallStats, getSessionStats } from './db.mjs';
+import { getOverallStats, getSessionStats, loadResets } from './db.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -83,8 +83,11 @@ async function main() {
   let sid = '';
   try { sid = JSON.parse(input || '{}').session_id || ''; } catch {}
 
-  const totalStats = getOverallStats();
-  const sessStats = sid ? getSessionStats(sid) : null;
+  const resets = loadResets();
+  const since = resets._all || null;
+  const sessionSince = (sid && resets[sid]) || null;
+  const totalStats = getOverallStats(since);
+  const sessStats = sid ? getSessionStats(sid, sessionSince) : null;
 
   let total = null, session = null;
 
