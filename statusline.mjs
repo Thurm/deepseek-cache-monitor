@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { getOverallStats, getSessionStats, getTodayStats } from './db.mjs';
+import { getOverallStats, getSessionStats } from './db.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -22,11 +22,16 @@ function rateColor(rate) {
 }
 
 // ── Simple theme ──────────────────────────────────────────────
-function renderSimple(total, today, session) {
+function block(label, data) {
+  let s = `${D}${label}${R} ${D}hit${R} ${data.c}${data.rate}${R} ${D}cost${R} ${C}${data.cost}${R}`;
+  if (data.today) s += ` ${D}today${R} ${C}${data.today}${R}`;
+  return s;
+}
+
+function renderSimple(total, session) {
   const segs = [];
-  if (total) segs.push(`${D}total${R} ${D}hit${R} ${total.c}${total.rate}${R} ${D}cost${R} ${C}${total.cost}${R}`);
-  if (today) segs.push(`${D}today${R} ${D}hit${R} ${today.c}${today.rate}${R} ${D}cost${R} ${C}${today.cost}${R}`);
-  if (session) segs.push(`${D}session${R} ${D}hit${R} ${session.c}${session.rate}${R} ${D}cost${R} ${C}${session.cost}${R}`);
+  if (total) segs.push(block('total', total));
+  if (session) segs.push(block('session', session));
   return segs.length
     ? `${C}DS${R} ${D}║${R} ${segs.join(` ${D}║${R} `)} ${D}║${R}`
     : `${D}DS --${R}`;
@@ -37,38 +42,35 @@ function arrow(fromBg, toBg) {
   return `\x1b[38;5;${fromBg};48;5;${toBg}m${PL_ARROW}`;
 }
 
-function powerlineBlock(label, rate, cost, bg, fgColor) {
+function powerlineBlock(label, data, bg, fgColor) {
   const F = (n) => `\x1b[38;5;${n}m`;
   const B = (n) => `\x1b[48;5;${n}m`;
-  // All items share the same background — no reset between them
-  return (
+  let s = (
     B(bg) + ' ' +
     F(15) + label + ' ' +
     F(7) + 'hit ' +
-    F(fgColor) + rate + ' ' +
+    F(fgColor) + data.rate + ' ' +
     F(7) + 'cost ' +
-    F(fgColor) + cost + ' '
+    F(fgColor) + data.cost
   );
+  if (data.today) s += ' ' + F(7) + 'today ' + F(fgColor) + data.today;
+  return s + ' ';
 }
 
-function renderPowerline(total, today, session) {
-  const totalBg = 24, todayBg = 28, sessBg = 53;  // teal · green · purple
+function renderPowerline(total, session) {
+  const totalBg = 24, sessBg = 53;  // teal · purple
 
-  if (!total && !today && !session) return `${D}DS --${R}`;
+  if (!total && !session) return `${D}DS --${R}`;
 
   let out = `\x1b[48;5;236m \x1b[38;5;14mDS `;
   let prev = 236;
 
   if (total) {
-    out += arrow(prev, totalBg) + powerlineBlock('total', total.rate, total.cost, totalBg, total.fg || 48);
+    out += arrow(prev, totalBg) + powerlineBlock('total', total, totalBg, total.fg || 48);
     prev = totalBg;
   }
-  if (today) {
-    out += arrow(prev, todayBg) + powerlineBlock('today', today.rate, today.cost, todayBg, today.fg || 48);
-    prev = todayBg;
-  }
   if (session) {
-    out += arrow(prev, sessBg) + powerlineBlock('session', session.rate, session.cost, sessBg, session.fg || 48);
+    out += arrow(prev, sessBg) + powerlineBlock('session', session, sessBg, session.fg || 48);
   }
   return out + R;
 }
@@ -85,30 +87,25 @@ async function main() {
 
   const totalStats = getOverallStats();
   const sessStats = sid ? getSessionStats(sid) : null;
-  const todayStats = getTodayStats();
 
-  let total = null, today = null, session = null;
+  let total = null, session = null;
 
   if (totalStats.totalRequests) {
     const r = parseFloat(totalStats.cacheHitRate);
     const cc = rateColor(r);
     const tCost = totalStats.cost_reset?._cny?.total || totalStats.cost_cny?.total || '¥0';
-    total = { rate: totalStats.cacheHitRate, cost: tCost, c: cc.c, fg: cc.fg };
-  }
-  if (todayStats) {
-    const cc = rateColor(todayStats.hit_rate);
-    today = { rate: todayStats.hit_rate + '%', cost: todayStats.cost_cny_total, c: cc.c, fg: cc.fg };
+    total = { rate: totalStats.cacheHitRate, cost: tCost, today: totalStats.cost_today_cny || null, c: cc.c, fg: cc.fg };
   }
   if (sessStats && sessStats.requests > 0) {
     const cc = rateColor(sessStats.hit_rate);
     const sCost = sessStats.cost_cny_reset || sessStats.cost_cny_total;
-    session = { rate: sessStats.hit_rate + '%', cost: sCost, c: cc.c, fg: cc.fg };
+    session = { rate: sessStats.hit_rate + '%', cost: sCost, today: sessStats.cost_cny_today || null, c: cc.c, fg: cc.fg };
   }
 
   const theme = loadTheme();
   const out = theme === 'powerline'
-    ? renderPowerline(total, today, session)
-    : renderSimple(total, today, session);
+    ? renderPowerline(total, session)
+    : renderSimple(total, session);
 
   console.log(out);
 }

@@ -99,12 +99,14 @@ export function getOverallStats() {
     if (rr && (rr.hit || rr.miss)) costReset = computeCost(rr.hit || 0, rr.miss || 0, rr.output || 0);
   }
 
+  const todayCost = getTodayCost();
   return {
     totalRequests: row.total_requests,
     cacheHitRate: `${hitRate}%`,
     tokens: { hit: totalHit, miss: totalMiss, write: totalWrite, input: totalHit + totalMiss, output: totalOutput },
     cost,
     cost_cny: cost._cny,
+    cost_today_cny: todayCost,
     cost_reset: costReset ? { ...costReset, _cny: costReset._cny } : null,
     hasReset: !!resets._all,
   };
@@ -147,14 +149,16 @@ export function getRecentRequests(limit = 20, sessionId = null, offset = 0) {
   `).all(limit, offset);
 }
 
-export function getTodayStats() {
+export function getTodayCost(sessionId = null) {
   const d = getDb();
-  const row = d.prepare(`SELECT SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests WHERE session_id != '' AND date(timestamp) = date('now', 'localtime')`).get();
+  const where = sessionId
+    ? "WHERE session_id = ? AND date(timestamp) = date('now', 'localtime')"
+    : "WHERE session_id != '' AND date(timestamp) = date('now', 'localtime')";
+  const row = sessionId
+    ? d.prepare(`SELECT SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests ${where}`).get(sessionId)
+    : d.prepare(`SELECT SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests ${where}`).get();
   if (!row || (!row.hit && !row.miss)) return null;
-  const total = (row.hit || 0) + (row.miss || 0);
-  const rate = total > 0 ? Math.round((row.hit || 0) / total * 1000) / 10 : 0;
-  const cost = computeCost(row.hit || 0, row.miss || 0, row.output || 0);
-  return { hit_rate: rate, cost_cny_total: cost._cny.total };
+  return computeCost(row.hit || 0, row.miss || 0, row.output || 0)._cny.total;
 }
 
 export function getSessionStats(sessionId) {
@@ -172,10 +176,12 @@ export function getSessionStats(sessionId) {
     const rr = d.prepare(`SELECT SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests WHERE session_id = ? AND timestamp >= ?`).get(sessionId, since);
     if (rr && (rr.hit || rr.miss)) costReset = computeCost(rr.hit || 0, rr.miss || 0, rr.output || 0);
   }
+  const todayCost = getTodayCost(sessionId);
   return {
     requests: row.requests,
     hit_rate: rate,
     cost_cny_total: cost._cny.total,
+    cost_cny_today: todayCost,
     cost_cny_reset: costReset ? costReset._cny.total : null,
   };
 }
