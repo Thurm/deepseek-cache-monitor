@@ -127,7 +127,7 @@ function renderOverview(d) {
   $$('#stats').innerHTML =
     '<div class="card"><div class="label">Total Requests</div><div class="value">' + fmt(d.totalRequests) + '</div></div>' +
     '<div class="card"><div class="label">Cache Hit Rate</div><div class="value hit">' + d.cacheHitRate + '</div></div>' +
-    '<div class="card"><div class="label">Cost Savings vs No-Cache</div><div class="value save">' + d.cost.savings + '</div><div style="font-size:.8rem;color:#d29922">' + d.cost_cny.savings + '</div></div>' +
+    (d.hasReset ? '<div class="card"><div class="label">Cost Savings (since reset)</div><div class="value save">' + (d.cost_reset?.savings || d.cost.savings) + '</div><div style="font-size:.8rem;color:#d29922">' + (d.cost_reset?._cny?.savings || d.cost_cny.savings) + '</div></div>' : '<div class="card"><div class="label">Cost Savings vs No-Cache</div><div class="value save">' + d.cost.savings + '</div><div style="font-size:.8rem;color:#d29922">' + d.cost_cny.savings + '</div></div>') +
     '<div class="card"><div class="label">Output Tokens</div><div class="value">' + fmt(d.tokens.output) + '</div></div>';
   $$('#token-panel').innerHTML = '<h2>Token Breakdown</h2><table>' +
     '<tr><td>Cache Hit</td><td>' + fmt(d.tokens.hit) + '</td></tr>' +
@@ -136,12 +136,15 @@ function renderOverview(d) {
     '<tr><td>Total Input</td><td>' + fmt(d.tokens.input) + '</td></tr>' +
     '<tr><td>Total Output</td><td>' + fmt(d.tokens.output) + '</td></tr>' +
     '</table>';
-  $$('#cost-panel').innerHTML = '<h2>Cost Breakdown</h2><table>' +
-    '<tr><td>Miss Cost</td><td>' + d.cost.miss + ' / ' + d.cost_cny.miss + '</td></tr>' +
-    '<tr><td>Hit Cost</td><td>' + d.cost.hit + ' / ' + d.cost_cny.hit + '</td></tr>' +
-    '<tr><td>Output Cost</td><td>' + d.cost.output + ' / ' + d.cost_cny.output + '</td></tr>' +
-    '<tr style="font-weight:600"><td style="color:#f85149">Total Cost</td><td style="color:#f85149">' + d.cost.total + ' / ' + d.cost_cny.total + '</td></tr>' +
-    '<tr style="font-weight:600"><td style="color:#3fb950">Savings <span style="color:#8b949e;font-weight:400;font-size:.8rem">(no-cache)</span></td><td style="color:#3fb950">' + d.cost.savings + ' / ' + d.cost_cny.savings + ' <span style="color:#8b949e;font-weight:400;font-size:.8rem">(' + d.cost.withoutCache + ' / ' + d.cost_cny.withoutCache + ')</span></td></tr>' +
+  const cr = d.cost_reset;
+  const cost = cr || d.cost;
+  const cost_cny = cr?._cny || d.cost_cny;
+  $$('#cost-panel').innerHTML = '<h2>Cost Breakdown' + (d.hasReset ? ' <span style="color:var(--muted);font-size:.7rem;font-weight:400">(since reset)</span>' : '') + '</h2><table>' +
+    '<tr><td>Miss Cost</td><td>' + cost.miss + ' / ' + cost_cny.miss + '</td></tr>' +
+    '<tr><td>Hit Cost</td><td>' + cost.hit + ' / ' + cost_cny.hit + '</td></tr>' +
+    '<tr><td>Output Cost</td><td>' + cost.output + ' / ' + cost_cny.output + '</td></tr>' +
+    '<tr style="font-weight:600"><td style="color:#f85149">Total Cost</td><td style="color:#f85149">' + cost.total + ' / ' + cost_cny.total + '</td></tr>' +
+    '<tr style="font-weight:600"><td style="color:#3fb950">Savings <span style="color:#8b949e;font-weight:400;font-size:.8rem">(no-cache)</span></td><td style="color:#3fb950">' + cost.savings + ' / ' + cost_cny.savings + ' <span style="color:#8b949e;font-weight:400;font-size:.8rem">(' + cost.withoutCache + ' / ' + cost_cny.withoutCache + ')</span></td></tr>' +
     '</table>';
 }
 

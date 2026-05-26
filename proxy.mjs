@@ -84,12 +84,9 @@ function sendJSON(res, data, status = 200) {
   res.end(JSON.stringify(data));
 }
 
-function handleOverview(res, url) {
-  try {
-    const resets = loadResets();
-    const since = resets._all || null;
-    sendJSON(res, getOverallStats(since));
-  } catch (e) { sendJSON(res, { error: e.message }, 500); }
+function handleOverview(res) {
+  try { sendJSON(res, getOverallStats()); }
+  catch (e) { sendJSON(res, { error: e.message }, 500); }
 }
 
 function handleResetCost(res, url) {
@@ -142,7 +139,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
-    if (path === '/api/overview') { handleOverview(res, u); return; }
+    if (path === '/api/overview') { handleOverview(res); return; }
     if (path === '/api/reset-cost') { handleResetCost(res, u); return; }
     if (path === '/api/recent')   { handleRecent(res, u); return; }
     if (path === '/api/daily')    { handleDaily(res); return; }

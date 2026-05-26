@@ -65,14 +65,18 @@ export function insertRequest(usage, model, sessionId) {
   `).run(sessionId ?? '', model ?? '', hit, miss, write, hit + miss, output);
 }
 
-export function getOverallStats(since = null) {
+export function getOverallStats() {
   const d = getDb();
-  const where = since
-    ? "WHERE session_id != '' AND timestamp >= ?"
-    : "WHERE session_id != ''";
-  const row = since
-    ? d.prepare(`SELECT COUNT(*) as total_requests, SUM(cache_hit_tokens) as total_hit, SUM(cache_miss_tokens) as total_miss, SUM(cache_write_tokens) as total_write, SUM(input_tokens) as total_input, SUM(output_tokens) as total_output FROM requests ${where}`).get(since)
-    : d.prepare(`SELECT COUNT(*) as total_requests, SUM(cache_hit_tokens) as total_hit, SUM(cache_miss_tokens) as total_miss, SUM(cache_write_tokens) as total_write, SUM(input_tokens) as total_input, SUM(output_tokens) as total_output FROM requests ${where}`).get();
+  const row = d.prepare(`
+    SELECT
+      COUNT(*) as total_requests,
+      SUM(cache_hit_tokens) as total_hit,
+      SUM(cache_miss_tokens) as total_miss,
+      SUM(cache_write_tokens) as total_write,
+      SUM(input_tokens) as total_input,
+      SUM(output_tokens) as total_output
+    FROM requests WHERE session_id != ''
+  `).get();
 
   if (!row || row.total_requests === 0) {
     return { totalRequests: 0, message: 'No data yet. Make some API calls first.' };
@@ -85,57 +89,48 @@ export function getOverallStats(since = null) {
   const totalCached = totalHit + totalMiss;
   const hitRate = totalCached > 0 ? (totalHit / totalCached * 100).toFixed(1) : '0.0';
 
-  // DeepSeek pricing per 1M tokens (deepseek-chat / v4-pro)
-  const inputPrice = 0.14;    // regular input (cache miss + cache write)
-  const cachedPrice = 0.014;  // cache read (hit)
-  const outputPrice = 0.28;   // output tokens
+  const cost = computeCost(totalHit, totalMiss, totalOutput);
 
-  // CNY pricing (¥ per 1M tokens)
-  const inputPriceCNY = 1;
-  const cachedPriceCNY = 0.1;
-  const outputPriceCNY = 2;
-
-  // Cost breakdown (USD)
-  const missCost = (totalMiss * inputPrice) / 1_000_000;
-  const hitCost = (totalHit * cachedPrice) / 1_000_000;
-  const outputCost = (totalOutput * outputPrice) / 1_000_000;
-  const totalCost = missCost + hitCost + outputCost;
-  const costWithoutCache = missCost + (totalHit * inputPrice) / 1_000_000 + outputCost;
-  const savings = costWithoutCache - totalCost;
-
-  // Cost breakdown (CNY)
-  const missCostCNY = (totalMiss * inputPriceCNY) / 1_000_000;
-  const hitCostCNY = (totalHit * cachedPriceCNY) / 1_000_000;
-  const outputCostCNY = (totalOutput * outputPriceCNY) / 1_000_000;
-  const totalCostCNY = missCostCNY + hitCostCNY + outputCostCNY;
-  const costWithoutCacheCNY = missCostCNY + (totalHit * inputPriceCNY) / 1_000_000 + outputCostCNY;
-  const savingsCNY = costWithoutCacheCNY - totalCostCNY;
+  // Reset-aware cost: only count requests after reset timestamp
+  const resets = loadResets();
+  let costReset = null;
+  if (resets._all) {
+    const rr = d.prepare(`SELECT SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests WHERE session_id != '' AND timestamp >= ?`).get(resets._all);
+    if (rr && (rr.hit || rr.miss)) costReset = computeCost(rr.hit || 0, rr.miss || 0, rr.output || 0);
+  }
 
   return {
     totalRequests: row.total_requests,
     cacheHitRate: `${hitRate}%`,
-    tokens: {
-      hit: totalHit,
-      miss: totalMiss,
-      write: totalWrite,
-      input: totalHit + totalMiss,
-      output: totalOutput,
-    },
-    cost: {
-      miss: `$${missCost.toFixed(4)}`,
-      hit: `$${hitCost.toFixed(4)}`,
-      output: `$${outputCost.toFixed(4)}`,
-      total: `$${totalCost.toFixed(4)}`,
-      withoutCache: `$${costWithoutCache.toFixed(4)}`,
-      savings: `$${savings.toFixed(4)}`,
-    },
-    cost_cny: {
-      miss: `¥${missCostCNY.toFixed(4)}`,
-      hit: `¥${hitCostCNY.toFixed(4)}`,
-      output: `¥${outputCostCNY.toFixed(4)}`,
-      total: `¥${totalCostCNY.toFixed(4)}`,
-      withoutCache: `¥${costWithoutCacheCNY.toFixed(4)}`,
-      savings: `¥${savingsCNY.toFixed(4)}`,
+    tokens: { hit: totalHit, miss: totalMiss, write: totalWrite, input: totalHit + totalMiss, output: totalOutput },
+    cost,
+    cost_cny: cost._cny,
+    cost_reset: costReset ? { ...costReset, _cny: costReset._cny } : null,
+    hasReset: !!resets._all,
+  };
+}
+
+export function computeCost(hit, miss, output) {
+  const inputPrice = 0.14, cachedPrice = 0.014, outputPrice = 0.28;
+  const inputPriceCNY = 1, cachedPriceCNY = 0.1, outputPriceCNY = 2;
+  const missCost = (miss * inputPrice) / 1_000_000;
+  const hitCost = (hit * cachedPrice) / 1_000_000;
+  const outputCost = (output * outputPrice) / 1_000_000;
+  const totalCost = missCost + hitCost + outputCost;
+  const costWithoutCache = missCost + (hit * inputPrice) / 1_000_000 + outputCost;
+  const savings = costWithoutCache - totalCost;
+  const missCostCNY = (miss * inputPriceCNY) / 1_000_000;
+  const hitCostCNY = (hit * cachedPriceCNY) / 1_000_000;
+  const outputCostCNY = (output * outputPriceCNY) / 1_000_000;
+  const totalCostCNY = missCostCNY + hitCostCNY + outputCostCNY;
+  const costWithoutCacheCNY = missCostCNY + (hit * inputPriceCNY) / 1_000_000 + outputCostCNY;
+  const savingsCNY = costWithoutCacheCNY - totalCostCNY;
+  return {
+    miss: `$${missCost.toFixed(4)}`, hit: `$${hitCost.toFixed(4)}`, output: `$${outputCost.toFixed(4)}`,
+    total: `$${totalCost.toFixed(4)}`, withoutCache: `$${costWithoutCache.toFixed(4)}`, savings: `$${savings.toFixed(4)}`,
+    _cny: {
+      miss: `¥${missCostCNY.toFixed(4)}`, hit: `¥${hitCostCNY.toFixed(4)}`, output: `¥${outputCostCNY.toFixed(4)}`,
+      total: `¥${totalCostCNY.toFixed(4)}`, withoutCache: `¥${costWithoutCacheCNY.toFixed(4)}`, savings: `¥${savingsCNY.toFixed(4)}`,
     },
   };
 }
@@ -152,23 +147,26 @@ export function getRecentRequests(limit = 20, sessionId = null, offset = 0) {
   `).all(limit, offset);
 }
 
-export function getSessionStats(sessionId, since = null) {
+export function getSessionStats(sessionId) {
   const d = getDb();
-  const where = since
-    ? 'WHERE session_id = ? AND timestamp >= ?'
-    : 'WHERE session_id = ?';
-  const row = since
-    ? d.prepare(`SELECT COUNT(*) as requests, SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests ${where}`).get(sessionId, since)
-    : d.prepare(`SELECT COUNT(*) as requests, SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests ${where}`).get(sessionId);
+  const row = d.prepare(`SELECT COUNT(*) as requests, SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests WHERE session_id = ?`).get(sessionId);
   if (!row || row.requests === 0) return null;
   const total = row.hit + row.miss;
   const rate = total > 0 ? Math.round(row.hit / total * 1000) / 10 : 0;
-  const inputPriceCNY = 1, cachedPriceCNY = 0.1, outputPriceCNY = 2;
-  const costCNY = ((row.miss * inputPriceCNY) + (row.hit * cachedPriceCNY) + (row.output * outputPriceCNY)) / 1_000_000;
+  const cost = computeCost(row.hit || 0, row.miss || 0, row.output || 0);
+  // Reset-aware
+  const resets = loadResets();
+  const since = resets[sessionId] || resets._all || null;
+  let costReset = null;
+  if (since) {
+    const rr = d.prepare(`SELECT SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests WHERE session_id = ? AND timestamp >= ?`).get(sessionId, since);
+    if (rr && (rr.hit || rr.miss)) costReset = computeCost(rr.hit || 0, rr.miss || 0, rr.output || 0);
+  }
   return {
     requests: row.requests,
     hit_rate: rate,
-    cost_cny_total: '¥' + costCNY.toFixed(4),
+    cost_cny_total: cost._cny.total,
+    cost_cny_reset: costReset ? costReset._cny.total : null,
   };
 }
 

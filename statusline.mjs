@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { getOverallStats, getSessionStats, loadResets } from './db.mjs';
+import { getOverallStats, getSessionStats } from './db.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -83,22 +83,21 @@ async function main() {
   let sid = '';
   try { sid = JSON.parse(input || '{}').session_id || ''; } catch {}
 
-  const resets = loadResets();
-  const since = resets._all || null;
-  const sessionSince = (sid && resets[sid]) || null;
-  const totalStats = getOverallStats(since);
-  const sessStats = sid ? getSessionStats(sid, sessionSince) : null;
+  const totalStats = getOverallStats();
+  const sessStats = sid ? getSessionStats(sid) : null;
 
   let total = null, session = null;
 
   if (totalStats.totalRequests) {
     const r = parseFloat(totalStats.cacheHitRate);
     const cc = rateColor(r);
-    total = { rate: totalStats.cacheHitRate, cost: totalStats.cost_cny?.total || '¥0', c: cc.c, fg: cc.fg };
+    const tCost = totalStats.cost_reset?._cny?.total || totalStats.cost_cny?.total || '¥0';
+    total = { rate: totalStats.cacheHitRate, cost: tCost, c: cc.c, fg: cc.fg };
   }
   if (sessStats && sessStats.requests > 0) {
     const cc = rateColor(sessStats.hit_rate);
-    session = { rate: sessStats.hit_rate + '%', cost: sessStats.cost_cny_total, c: cc.c, fg: cc.fg };
+    const sCost = sessStats.cost_cny_reset || sessStats.cost_cny_total;
+    session = { rate: sessStats.hit_rate + '%', cost: sCost, c: cc.c, fg: cc.fg };
   }
 
   const theme = loadTheme();
