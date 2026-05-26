@@ -113,8 +113,9 @@ export function getOverallStats() {
 }
 
 export function computeCost(hit, miss, output) {
-  const inputPrice = 0.14, cachedPrice = 0.014, outputPrice = 0.28;
-  const inputPriceCNY = 1, cachedPriceCNY = 0.1, outputPriceCNY = 2;
+  // DeepSeek V4-Pro pricing per 1M tokens (2026-05-22 permanent cut)
+  const inputPrice = 0.42, cachedPrice = 0.0035, outputPrice = 0.84;
+  const inputPriceCNY = 3, cachedPriceCNY = 0.025, outputPriceCNY = 6;
   const missCost = (miss * inputPrice) / 1_000_000;
   const hitCost = (hit * cachedPrice) / 1_000_000;
   const outputCost = (output * outputPrice) / 1_000_000;

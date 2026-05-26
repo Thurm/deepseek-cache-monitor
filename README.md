@@ -129,9 +129,9 @@ Based on [DeepSeek API pricing](https://platform.deepseek.com/api-docs/pricing) 
 
 | | USD | CNY |
 |---|-----|-----|
-| Input (cache miss) | $0.14 | ¥1.00 |
-| Cache read (hit) | $0.014 | ¥0.10 |
-| Output | $0.28 | ¥2.00 |
+| Input (cache miss) | $0.42 | ¥3.00 |
+| Cache read (hit) | $0.0035 | ¥0.025 |
+| Output | $0.84 | ¥6.00 |
 
 The dashboard computes: **savings = (cost without cache) − (actual cost)**. Both currencies are shown side by side.
 
