@@ -147,6 +147,16 @@ export function getRecentRequests(limit = 20, sessionId = null, offset = 0) {
   `).all(limit, offset);
 }
 
+export function getTodayStats() {
+  const d = getDb();
+  const row = d.prepare(`SELECT SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests WHERE session_id != '' AND date(timestamp) = date('now', 'localtime')`).get();
+  if (!row || (!row.hit && !row.miss)) return null;
+  const total = (row.hit || 0) + (row.miss || 0);
+  const rate = total > 0 ? Math.round((row.hit || 0) / total * 1000) / 10 : 0;
+  const cost = computeCost(row.hit || 0, row.miss || 0, row.output || 0);
+  return { hit_rate: rate, cost_cny_total: cost._cny.total };
+}
+
 export function getSessionStats(sessionId) {
   const d = getDb();
   const row = d.prepare(`SELECT COUNT(*) as requests, SUM(cache_hit_tokens) as hit, SUM(cache_miss_tokens) as miss, SUM(output_tokens) as output FROM requests WHERE session_id = ?`).get(sessionId);
